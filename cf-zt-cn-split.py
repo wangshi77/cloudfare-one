@@ -50,7 +50,12 @@ def update_split_tunnels(cidrs, domains):
 
     # 2. 定义必须保留的“硬性规则”
     my_custom_rules = [
-        {"address": "172.17.0.0/16", "description": "Docker Bridge"},
+        # 1. 归并所有 192.168.x.x 网段
+        {"address": "192.168.0.0/16", "description": "Local LAN & Docker"}, 
+        # 2. 保留 10.x.x.x 和 172.16-31.x.x 等其他内网段
+        {"address": "10.0.0.0/8", "description": "Private Network"},
+        {"address": "172.16.0.0/12", "description": "Private Network"},
+        # 3. 域名规则
         {"host": "*.cctv.com", "description": "CCTV Live"},
         {"host": "*.cntv.cn", "description": "CNTV Live"}
     ]
