@@ -2,31 +2,48 @@ import requests
 import os
 import json
 
+# 配置
 API_TOKEN = os.getenv("CF_API_TOKEN")
 ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
+# 这是你刚才探测出的路径
+SETTINGS_URL = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/devices/settings"
+
+def get_gfwlist_rules():
+    # 保持原有的 CN IP 规则
+    rules = [
+        {"address": "94.191.0.0/17", "description": "CN IP"},
+        {"address": "93.183.18.0/24", "description": "CN IP"},
+        {"address": "93.183.14.0/24", "description": "CN IP"},
+        {"address": "1.1.8.0/24", "description": "CN IP"}
+    ]
+    # 这里可以添加你需要的 GFWList 域名逻辑
+    # 为了演示，先手动添加一个
+    rules.append({"host": "*.google.com"}) 
+    return rules
 
 def main():
-    headers = {"Authorization": f"Bearer {API_TOKEN}"}
+    headers = {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
     
-    # 获取该账户下所有的策略列表
-    url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/devices/policy"
+    # 1. 获取当前线上完整配置
+    res = requests.get(SETTINGS_URL, headers=headers)
+    if res.status_code != 200:
+        print(f"❌ 读取失败: {res.text}")
+        return
     
-    print(f"🚀 正在检索所有策略...")
-    res = requests.get(url, headers=headers)
+    current_config = res.json().get('result', {})
     
-    if res.status_code == 200:
-        data = res.json().get('result', [])
-        print(f"\n✅ 成功找到 {len(data)} 个策略：")
-        print(json.dumps(data, indent=2))
-        
-        # 如果找到了策略，我们顺便取第一个 ID 看看它的具体结构
-        if len(data) > 0:
-            target_id = data[0].get('id')
-            print(f"\n👉 正在尝试获取第一个策略 ({target_id}) 的详细配置结构...")
-            detail_res = requests.get(f"{url}/{target_id}", headers=headers)
-            print(json.dumps(detail_res.json(), indent=2))
+    # 2. 注入新规则
+    new_rules = get_gfwlist_rules()
+    current_config['exclude'] = new_rules
+    
+    # 3. 将完整的、结构正确的对象回写 (使用 PUT)
+    print("🚀 正在回写完整配置以确保控制台可见...")
+    res_put = requests.put(SETTINGS_URL, json=current_config, headers=headers)
+    
+    if res_put.status_code == 200:
+        print("🎉 同步成功！Cloudflare 控制台现在应该能正常显示规则了。")
     else:
-        print(f"❌ 获取列表失败 ({res.status_code}): {res.text}")
+        print(f"❌ 同步失败: {res_put.text}")
 
 if __name__ == "__main__":
     main()
