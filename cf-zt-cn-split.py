@@ -3,7 +3,6 @@ import base64
 import re
 import os
 
-# 读取 GitHub Actions 传进来的环境变量
 API_TOKEN = os.getenv("CF_API_TOKEN")
 ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
 
@@ -20,7 +19,7 @@ def get_gfwlist_domains():
 
 def main():
     if not API_TOKEN or not ACCOUNT_ID:
-        print("❌ 错误：未配置环境变量，请检查 GitHub Secrets 设置。")
+        print("❌ 错误：未配置环境变量。")
         return
 
     headers = {
@@ -36,32 +35,43 @@ def main():
         print(f"❌ 获取策略列表失败 ({response.status_code}): {response.text}")
         return
 
-    policies = response.json().get('result', [])
-    # 尝试寻找名字为 'Default' 的策略，如果找不到则尝试第一个
-    target_policy = next((p for p in policies if p.get('name') == 'Default'), None)
-    if not target_policy and policies:
-        target_policy = policies[0]
+    data = response.json()
+    policies = data.get('result', [])
 
+    # 2. 严谨的策略查找逻辑
+    target_policy = None
+    if isinstance(policies, list):
+        for p in policies:
+            if isinstance(p, dict) and p.get('name') == 'Default':
+                target_policy = p
+                break
+        # 如果没找到叫 Default 的，默认取第一个字典项
+        if not target_policy:
+            for p in policies:
+                if isinstance(p, dict):
+                    target_policy = p
+                    break
+    
     if not target_policy:
         print("❌ 未在 Cloudflare 中找到任何可用策略。")
         return
 
-    policy_id = target_policy['id']
-    print(f"✅ 已定位策略: {target_policy.get('name')} (ID: {policy_id})")
+    policy_id = target_policy.get('id')
+    print(f"✅ 已定位策略: {target_policy.get('name', 'Unknown')} (ID: {policy_id})")
 
-    # 2. 构造规则
+    # 3. 构造规则
     rules = [{"address": "192.168.0.0/16", "description": "Local LAN"}]
     for d in get_gfwlist_domains()[:990]:
         rules.append({"host": f"*.{d}", "description": "Auto GFWList"})
 
-    # 3. 同步
+    # 4. 同步执行
     sync_url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/devices/policy/{policy_id}/split_tunnel"
     payload = {"mode": "include", "include": rules}
     
     res = requests.put(sync_url, json=payload, headers=headers)
     
     if res.status_code == 200:
-        print(f"🎉 同步成功！已更新 {len(rules)} 条规则。")
+        print(f"🎉 同步成功！已更新规则。")
     else:
         print(f"❌ 同步失败 ({res.status_code}): {res.text}")
 
