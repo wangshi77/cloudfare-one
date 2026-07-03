@@ -8,19 +8,25 @@ ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
 def main():
     headers = {"Authorization": f"Bearer {API_TOKEN}"}
     
-    # 获取默认策略的完整信息
-    url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/devices/policy/default"
+    # 获取该账户下所有的策略列表
+    url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/devices/policy"
     
-    print(f"🚀 正在获取当前默认策略配置...")
+    print(f"🚀 正在检索所有策略...")
     res = requests.get(url, headers=headers)
     
     if res.status_code == 200:
-        config = res.json().get('result', {})
-        print("\n✅ 成功获取完整配置，请复制以下 JSON 内容发给我：")
-        print(json.dumps(config, indent=2))
+        data = res.json().get('result', [])
+        print(f"\n✅ 成功找到 {len(data)} 个策略：")
+        print(json.dumps(data, indent=2))
+        
+        # 如果找到了策略，我们顺便取第一个 ID 看看它的具体结构
+        if len(data) > 0:
+            target_id = data[0].get('id')
+            print(f"\n👉 正在尝试获取第一个策略 ({target_id}) 的详细配置结构...")
+            detail_res = requests.get(f"{url}/{target_id}", headers=headers)
+            print(json.dumps(detail_res.json(), indent=2))
     else:
-        print(f"❌ 获取失败 ({res.status_code}): {res.text}")
-        print("💡 如果这里报错，说明你的策略可能不是 'default'，请运行上一个脚本查看策略列表。")
+        print(f"❌ 获取列表失败 ({res.status_code}): {res.text}")
 
 if __name__ == "__main__":
     main()
