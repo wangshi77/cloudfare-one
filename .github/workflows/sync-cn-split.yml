@@ -23,6 +23,6 @@ jobs:
       - name: Run sync script
         env:
           # 这里对应你在 GitHub Secrets 设置的两个名称
-          CF_API_TOKEN: ${{ secrets.cfat_Y8mLtKHpGAwYk9cXlKuqsOgyPdDObnSW7TlyPmKmc7b77de7 }}
-          CF_ACCOUNT_ID: ${{ secrets.6fffa32a503ef35a744ef3243f4003f2 }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: python cf-zt-cn-split.py
