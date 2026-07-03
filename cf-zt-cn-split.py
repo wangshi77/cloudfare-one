@@ -6,6 +6,7 @@ import os
 # 配置环境变量
 API_TOKEN = os.getenv("CF_API_TOKEN")
 ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
+POLICY_ID = "019f1bd7-e528-7c12-8183-5b437fb27e6e"
 
 def get_gfwlist_domains():
     url = "https://raw.githubusercontent.com/gfwlist/gfwlist/master/gfwlist.txt"
@@ -19,43 +20,39 @@ def get_gfwlist_domains():
         return []
 
 def main():
-    if not API_TOKEN or not ACCOUNT_ID:
-        print("❌ 错误：未配置环境变量")
+    headers = {"Authorization": f"Bearer {API_TOKEN}", "Content-Type": "application/json"}
+    
+    # 1. 先获取当前策略的完整定义 (这是最关键的一步)
+    get_url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/devices/policy/{POLICY_ID}"
+    res = requests.get(get_url, headers=headers)
+    
+    if res.status_code != 200:
+        print(f"❌ 获取策略失败: {res.text}")
         return
-
-    headers = {
-        "Authorization": f"Bearer {API_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    # 1. 获取 GFWList 并构建规则
+        
+    policy_data = res.json().get('result', {})
+    
+    # 2. 构建新的排除列表
     domains = get_gfwlist_domains()
-    # 根据你提供的原始数据，保留原有的 CN IP 规则，避免覆盖出错
-    rules = [
+    new_rules = [
         {"address": "94.191.0.0/17", "description": "CN IP"},
         {"address": "93.183.18.0/24", "description": "CN IP"}
     ]
-    # 追加规则
     for d in domains[:300]:
-        rules.append({"host": f"*.{d}"})
+        new_rules.append({"host": f"*.{d}"})
     
-    print(f"✅ 已准备 {len(rules)} 条规则...")
-
-    # 2. 最关键的逻辑：使用 'default' 而不是 ID，并使用 PUT 方法覆盖
-    # 路径：/accounts/{id}/devices/policy/default
-    sync_url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/devices/policy/default"
+    # 3. 将新规则覆盖到原有的策略对象中
+    # 这里我们只修改 exclude 字段，其他配置（如 fallback_domains 等）原样保留
+    policy_data['exclude'] = new_rules
     
-    # payload：直接覆盖 exclude 列表
-    payload = {"exclude": rules}
+    # 4. 执行全量覆盖更新 (PATCH)
+    print(f"🚀 正在发送全量策略同步...")
+    res_patch = requests.patch(get_url, json=policy_data, headers=headers)
     
-    print(f"🚀 正在发送同步请求到: {sync_url} ...")
-    res = requests.put(sync_url, json=payload, headers=headers)
-    
-    if res.status_code == 200:
+    if res_patch.status_code == 200:
         print("🎉 同步成功！")
     else:
-        print(f"❌ 同步失败 ({res.status_code}): {res.text}")
-        print("💡 如果报错 'invalid format'，请尝试将 payload 修改为: {'split_tunnel': {'exclude': rules}}")
+        print(f"❌ 同步失败 ({res_patch.status_code}): {res_patch.text}")
 
 if __name__ == "__main__":
     main()
