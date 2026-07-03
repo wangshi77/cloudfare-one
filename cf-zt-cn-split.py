@@ -4,8 +4,8 @@ import re
 import os
 
 # 从环境变量获取 API 凭证
-API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN")
-ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
+API_TOKEN = os.getenv("cfat_Y8mLtKHpGAwYk9cXlKuqsOgyPdDObnSW7TlyPmKmc7b77de7")
+ACCOUNT_ID = os.getenv("6fffa32a503ef35a744ef3243f4003f2")
 
 def get_gfwlist_domains():
     """自动获取并解析最新的 GFWList"""
