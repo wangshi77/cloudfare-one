@@ -4,8 +4,8 @@ import re
 import os
 
 # 读取你在 GitHub Secrets 设置的名称
-API_TOKEN = os.getenv("cfat_Y8mLtKHpGAwYk9cXlKuqsOgyPdDObnSW7TlyPmKmc7b77de7")
-ACCOUNT_ID = os.getenv("6fffa32a503ef35a744ef3243f4003f2")
+API_TOKEN = os.getenv("CF_API_TOKEN")
+ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
 
 def get_gfwlist_domains():
     url = "https://raw.githubusercontent.com/gfwlist/gfwlist/master/gfwlist.txt"
