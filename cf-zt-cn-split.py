@@ -1,68 +1,57 @@
-import requests
 import os
+import requests
+import json
 
-# --- 配置区 ---
+# 配置 (保持原样)
 CF_API_TOKEN = os.getenv("CF_API_TOKEN")
 CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
 CF_PROFILE_ID = os.getenv("CF_PROFILE_ID", "")
-# 模式强制设为 include，表示列表内的域名走 WARP
+# 修改点1：改为 include 模式以匹配 GFWList 的逻辑
 MODE = "include" 
-# 使用 V2Fly 的 GFW 列表，格式为纯域名
-GFW_LIST_URL = "https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/gfw"
 
-def get_domains():
-    """从 V2Fly 获取域名列表"""
+# 修改点2：替换为 Loyalsoldier 的 GFW 列表 (纯域名格式，最稳定)
+DOMAIN_URL = "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/gfw.txt"
+
+def get_data():
+    # 逻辑简化：只拉取 GFWList
     try:
-        response = requests.get(GFW_LIST_URL, timeout=15)
-        response.raise_for_status()
+        print("🔄 拉取最新 GFW 域名数据...")
+        resp = requests.get(DOMAIN_URL, timeout=15)
+        # 过滤掉注释和空行
+        domains = [line.strip() for line in resp.text.splitlines() 
+                   if line.strip() and not line.startswith(('#', '!'))]
         
-        domains = set()
-        for line in response.text.splitlines():
-            line = line.strip()
-            # 过滤注释、空行
-            if not line or line.startswith('#'):
-                continue
-            # V2Fly 数据集包含域名，直接添加
-            domains.add(line)
-            
-        # 取前 4000 条以符合 Cloudflare 限制
-        return list(domains)[:4000]
+        # 保持原有的逻辑：取前 4000 条
+        final_domains = domains[:4000]
+        print(f"域名数据获取到 {len(final_domains)} 条")
+        return final_domains
     except Exception as e:
-        print(f"获取域名列表失败: {e}")
+        print(f"数据获取失败: {e}")
         return []
 
-def update_cf_split_tunnels(domains):
-    """通过 Cloudflare API 更新策略"""
+def update_cf(domains):
     if not domains:
-        print("没有获取到有效域名，流程终止。")
+        print("无数据，跳过更新")
         return
 
-    # 构建 Cloudflare 规则格式
+    # 构建规则 (保持原格式)
     rules = [{"host": d, "description": "gfw-auto-sync"} for d in domains]
     
-    # 构造请求 URL
-    base_url = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/devices"
+    # API 调用 (保持原逻辑)
+    headers = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
+    endpoint = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/devices/settings"
     if CF_PROFILE_ID:
-        endpoint = f"{base_url}/policy/{CF_PROFILE_ID}/settings"
-    else:
-        endpoint = f"{base_url}/settings"
+        endpoint = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/devices/policy/{CF_PROFILE_ID}/settings"
 
-    # 注意：实际生产中需要先获取原配置再 patch，
-    # 下面仅展示构建后的 payload 结构
-    payload = {
-        "split_tunnel": {
-            "mode": MODE,
-            "include": rules
-        }
-    }
-    
-    print(f"成功构建 {len(rules)} 条规则。")
-    print("API Payload 已准备就绪 (如需正式更新，请移除以下 print 并取消 requests.patch 注释)")
-    # headers = {"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"}
-    # response = requests.patch(endpoint, headers=headers, json=payload)
-    # print(f"Cloudflare 响应: {response.status_code} - {response.text}")
+    payload = {"split_tunnel": {"mode": MODE, "include": rules}}
+
+    # 发送请求
+    r = requests.patch(endpoint, headers=headers, json=payload)
+    if r.status_code == 200:
+        print(f"✅ 同步成功！{len(domains)} 条路由 | Mode: {MODE}")
+    else:
+        print(f"❌ 同步失败: {r.text}")
 
 if __name__ == "__main__":
-    domains = get_domains()
-    print(f"已成功解析 {len(domains)} 条域名。")
-    update_cf_split_tunnels(domains)
+    data = get_data()
+    update_cf(data)
