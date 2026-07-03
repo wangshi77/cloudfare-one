@@ -1,4 +1,4 @@
-name: Sync Cloudflare Split Tunnels (ios)
+name: Sync Cloudflare Split Tunnels
 
 on:
   schedule:
@@ -8,7 +8,6 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -19,13 +18,11 @@ jobs:
           python-version: '3.9'
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
+        run: pip install requests
 
       - name: Run sync script
         env:
-          # 注意：这里引用的是你在网页设置里的名称，而不是明文数值
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # 这里对应你在 GitHub Secrets 设置的两个名称
+          CF_API_TOKEN: ${{ secrets.cfat_Y8mLtKHpGAwYk9cXlKuqsOgyPdDObnSW7TlyPmKmc7b77de7 }}
+          CF_ACCOUNT_ID: ${{ secrets.6fffa32a503ef35a744ef3243f4003f2 }}
         run: python cf-zt-cn-split.py
