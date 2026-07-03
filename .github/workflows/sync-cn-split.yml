@@ -1,33 +1,13 @@
-name: 每日同步 CN Split Tunnels 到 Cloudflare Zero Trust
-permissions:
-  contents: read
-
-on:
-  schedule:
-    - cron: '0 3 * * 0'  # 每周日 UTC 3:00
-  workflow_dispatch:     # 手动触发按钮
-
-jobs:
-  sync:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: 设置 Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          # 显式声明 node-version 以消除潜在的兼容性警告
-          node-version: '22' 
-
-      - name: 安装依赖
-        run: pip install requests
-
-      - name: 运行同步脚本
+- name: 运行同步脚本
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_PROFILE_ID: ${{ secrets.CF_PROFILE_ID }}
           MODE: exclude
-        run: python cf-zt-cn-split.py
+        run: |
+          echo "当前目录文件列表："
+          ls -F
+          echo "--- 查看文件头部 ---"
+          head -n 10 cf-zt-cn-split.py
+          echo "--- 开始执行 ---"
+          python cf-zt-cn-split.py
