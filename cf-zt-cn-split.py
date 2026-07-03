@@ -1,87 +1,106 @@
+
 import requests
 import os
 import re
 
-# --- 配置项 ---
 CF_API_TOKEN = os.getenv("CF_API_TOKEN")
 ACCOUNT_ID   = os.getenv("CF_ACCOUNT_ID")
 PROFILE_ID   = os.getenv("CF_PROFILE_ID", "")
-MODE         = os.getenv("MODE", "exclude")
+MODE         = os.getenv("MODE", "exclude")  # exclude=CN直连 | include=只有CN走WARP
 ALLOWED_MODES = {"exclude", "include"}
 
 if not all([CF_API_TOKEN, ACCOUNT_ID]):
-    raise ValueError("缺少环境变量！请设置 CF_API_TOKEN、CF_ACCOUNT_ID")
+    raise ValueError("缺少环境变量！请在 GitHub Secrets 设置 CF_API_TOKEN、CF_ACCOUNT_ID")
+
+if MODE not in ALLOWED_MODES:
+    raise ValueError(f"非法 MODE: {MODE}，只允许 {'/'.join(sorted(ALLOWED_MODES))}")
 
 HEADERS = {
     "Authorization": f"Bearer {CF_API_TOKEN}",
     "Content-Type": "application/json"
 }
 
-MAX_RULES = 4000
+MAX_RULES       = 4000
+TARGET_DOMAIN_N = 0  # 期望域名条数，剩余配额给 IP
+
+# 合法域名正则：只保留标准域名格式，过滤脏数据
+VALID_DOMAIN_RE = re.compile(r'^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$')
+
+# 域名：Loyalsoldier 精选直连域名
 DOMAIN_URL = "https://raw.githubusercontent.com/Loyalsoldier/surge-rules/release/direct.txt"
+
+# IP：GeoIP2-CN
 IP_URL = "https://raw.githubusercontent.com/soffchen/GeoIP2-CN/release/CN-ip-cidr.txt"
 
+# 备用 IP 数据源
+# IPdeny aggregated (~2200 条):
+#   https://www.ipdeny.com/ipblocks/data/aggregated/cn-aggregated.zone
+# metowolf/iplist (~1700 条):
+#   https://raw.githubusercontent.com/metowolf/iplist/master/data/special/china.txt
+
+
 def get_cn_cidrs():
+    """从GeoIP2-CN 拉取聚合的 CN CIDR 列表"""
     r = requests.get(IP_URL, timeout=30)
     r.raise_for_status()
-    return [line.strip() for line in r.text.splitlines() if line.strip() and not line.startswith('#')]
+    cidrs = [line.strip() for line in r.text.splitlines() if line.strip() and not line.startswith('#')]
+    print(f"   IP 数据源获取到 {len(cidrs)} 条 CIDR")
+    return cidrs
+
 
 def get_cn_domains():
+    """从 Loyalsoldier/surge-rules 拉取精选 CN 直连域名列表，过滤非法格式"""
     r = requests.get(DOMAIN_URL, timeout=30)
     r.raise_for_status()
     domains = []
     for line in r.text.splitlines():
         line = line.strip()
-        if not line or line.startswith('#') or not line.startswith('DOMAIN-SUFFIX,'): continue
-        d = line.replace('DOMAIN-SUFFIX,', '').lstrip('.')
-        domains.append(f"*.{d}")
-    return list(set(domains))
+        if not line or line.startswith('#'):
+            continue
+        # 兼容 DOMAIN-SUFFIX,xxx 格式
+        if line.startswith('DOMAIN-SUFFIX,'):
+            line = line.replace('DOMAIN-SUFFIX,', '').strip()
+        # 去掉前导点（如 .baidu.com → baidu.com）
+        line = line.lstrip('.')
+        # 只保留合法域名格式，过滤脏数据
+        if line and VALID_DOMAIN_RE.match(line):
+            domains.append(f"*.{line}")
+    unique = list(set(domains))
+    print(f"   域名数据源获取到 {len(unique)} 条域名（已过滤非法格式）")
+    return unique
+
 
 def update_split_tunnels(cidrs, domains):
-    # 1. 设置 API URL
+    # 动态分配配额：域名取 TARGET_DOMAIN_N 条，剩余给 IP
+    max_domains = min(TARGET_DOMAIN_N, len(domains))
+    max_ips     = min(MAX_RULES - max_domains, len(cidrs))
+
+    # 域名规则在前（DNS 层优先命中），IP 规则在后（网络层兜底）
+    domain_entries = [{"host":    d,    "description": "CN Domain"} for d    in domains[:max_domains]]
+    ip_entries     = [{"address": cidr, "description": "CN IP"}     for cidr in cidrs[:max_ips]]
+    routes = domain_entries + ip_entries
+
+    print(f"   域名规则：{len(domain_entries)} 条 | IP 规则：{len(ip_entries)} 条 | 合计：{len(routes)} 条")
+
+    if len(routes) > MAX_RULES:
+        print(f"⚠️  规则总数超出限制，已截断至 {MAX_RULES} 条")
+        routes = routes[:MAX_RULES]
+
     if PROFILE_ID:
         url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/devices/policy/{PROFILE_ID}/{MODE}"
     else:
         url = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/devices/policy/{MODE}"
 
-    # 2. 获取云端现有规则
-    print("🔄 正在获取云端现有规则...")
-    resp_get = requests.get(url, headers=HEADERS)
-    existing_rules = resp_get.json().get("result", []) if resp_get.status_code == 200 else []
-    print(f"   云端现有 {len(existing_rules)} 条规则")
-
-    # 3. 定义你必须保留的“硬性规则”
-    my_custom_rules = [
-        {"address": "172.17.0.0/16", "description": "Docker Bridge"},
-        {"host": "*.cctv.com", "description": "CCTV Live"},
-        {"host": "*.cntv.cn", "description": "CNTV Live"}
-    ]
-
-    # 4. 准备要注入的新规则
-    new_entries = [{"host": d, "description": "CN Domain"} for d in domains] + \
-                  [{"address": c, "description": "CN IP"} for c in cidrs]
-    
-    # 5. 合并并去重
-    # 使用字典以 address 或 host 为 Key 进行合并，优先保留已有规则
-    all_rules_dict = {}
-    for rule in (existing_rules + my_custom_rules + new_entries):
-        key = rule.get("address") or rule.get("host")
-        if key and key not in all_rules_dict:
-            all_rules_dict[key] = rule
-
-    final_routes = list(all_rules_dict.values())[:MAX_RULES]
-    print(f"   准备推送 {len(final_routes)} 条路由...")
-
-    # 6. 推送更新
-    resp = requests.put(url, json=final_routes, headers=HEADERS)
+    resp = requests.put(url, json=routes, headers=HEADERS)
     if resp.status_code in (200, 204):
-        print(f"✅ 同步成功！当前共 {len(final_routes)} 条规则。")
+        print(f"✅ 同步成功！{len(routes)} 条路由 | Mode: {MODE}")
     else:
-        print(f"❌ 请求失败: {resp.status_code}")
+        print(f"❌ 失败 {resp.status_code}: Cloudflare API 请求未成功")
         resp.raise_for_status()
 
+
 if __name__ == "__main__":
-    print("🚀 开始同步任务...")
-    cidrs = get_cn_cidrs()
+    print("🔄 拉取最新 CN geo 数据...")
+    cidrs   = get_cn_cidrs()
     domains = get_cn_domains()
     update_split_tunnels(cidrs, domains)
