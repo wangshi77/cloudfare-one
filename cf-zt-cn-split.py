@@ -20,11 +20,11 @@ HEADERS = {
 
 # --- 规则限制 ---
 MAX_RULES       = 4000
-TARGET_DOMAIN_N = 1000  # 限制域名数量，避免 API 报错
+TARGET_DOMAIN_N = 3000  # 限制域名数量，避免 API 报错
 
 # --- 数据源配置 ---
 DOMAIN_URL = "https://raw.githubusercontent.com/gfwlist/gfwlist/master/gfwlist.txt"
-IP_URL     = "https://raw.githubusercontent.com/soffchen/GeoIP2-CN/release/CN-ip-cidr.txt"
+
 
 # 合法域名正则
 VALID_DOMAIN_RE = re.compile(r'^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$')
