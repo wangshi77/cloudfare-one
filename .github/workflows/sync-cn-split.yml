@@ -2,8 +2,8 @@ name: Sync Cloudflare Split Tunnels
 
 on:
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    - cron: '0 0 * * *' # 每天北京时间 8:00 执行
+  workflow_dispatch:      # 允许手动在网页点击运行
 
 jobs:
   sync:
@@ -22,7 +22,7 @@ jobs:
 
       - name: Run sync script
         env:
-          # 这里对应你在 GitHub Secrets 设置的两个名称
+          # 这一行会自动从 GitHub Secrets 提取你存的值，安全且正确
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: python cf-zt-cn-split.py
