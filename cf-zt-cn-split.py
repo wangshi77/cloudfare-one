@@ -58,6 +58,7 @@ def update_split_tunnels(cidrs, domains):
         # 3. 域名规则
         {"host": "*.cctv.com", "description": "CCTV Live"},
         {"host": "*.cntv.cn", "description": "CNTV Live"}
+        {"host": "*.xiaohongshu.com", "description": "xiaohongshu Live"}
     ]
 
     # 3. 合并逻辑
