@@ -1,20 +1,16 @@
 import requests
 import os
 import re
-import ipaddress
 
 # --- 配置环境变量 ---
 CF_API_TOKEN = os.getenv("CF_API_TOKEN")
 ACCOUNT_ID   = os.getenv("CF_ACCOUNT_ID")
 PROFILE_ID   = os.getenv("CF_PROFILE_ID", "")
-MODE         = os.getenv("MODE", "exclude")  # exclude=CN直连 | include=只有CN走WARP
+MODE         = os.getenv("MODE", "exclude")
 ALLOWED_MODES = {"exclude", "include"}
 
 if not all([CF_API_TOKEN, ACCOUNT_ID]):
     raise ValueError("缺少环境变量！请在 GitHub Secrets 设置 CF_API_TOKEN、CF_ACCOUNT_ID")
-
-if MODE not in ALLOWED_MODES:
-    raise ValueError(f"非法 MODE: {MODE}，只允许 {'/'.join(sorted(ALLOWED_MODES))}")
 
 HEADERS = {
     "Authorization": f"Bearer {CF_API_TOKEN}",
@@ -24,36 +20,26 @@ HEADERS = {
 MAX_RULES       = 4000
 TARGET_DOMAIN_N = 1000  
 
-# 域名合法性正则
 VALID_DOMAIN_RE = re.compile(r'^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$')
-
-# 数据源地址
 DOMAIN_URL = "https://raw.githubusercontent.com/Loyalsoldier/surge-rules/release/direct.txt"
 IP_URL = "https://raw.githubusercontent.com/soffchen/GeoIP2-CN/release/CN-ip-cidr.txt"
 
-def is_local_or_private(cidr):
-    """判断是否为本地局域网、回环或链路本地地址"""
-    try:
-        network = ipaddress.ip_network(cidr)
-        # 过滤私有网段 (RFC 1918)、回环地址 (127.0.0.0/8) 及链路本地地址 (169.254.0.0/16)
-        return network.is_private or network.is_loopback or network.is_link_local
-    except ValueError:
-        return False
-
 def get_cn_cidrs():
-    """获取并清洗 CN IP 列表"""
+    """获取所有 CN IP，不做任何过滤"""
     r = requests.get(IP_URL, timeout=30)
     r.raise_for_status()
-    raw_lines = [line.strip() for line in r.text.splitlines() if line.strip() and not line.startswith('#')]
+    cidrs = [line.strip() for line in r.text.splitlines() if line.strip() and not line.startswith('#')]
     
-    # 执行过滤
-    cidrs = [c for c in raw_lines if not is_local_or_private(c)]
+    # 手动把私有网段加进去（确保它们被包含在 IP 列表里）
+    private_cidrs = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16"]
+    cidrs.extend(private_cidrs)
     
-    print(f"   IP 数据源获取到 {len(raw_lines)} 条，排除私有网段后剩余 {len(cidrs)} 条")
-    return cidrs
+    # 去重
+    unique_cidrs = list(set(cidrs))
+    print(f"   IP 数据源获取到 {len(unique_cidrs)} 条 (包含私有网段)")
+    return unique_cidrs
 
 def get_cn_domains():
-    """获取并格式化域名列表"""
     r = requests.get(DOMAIN_URL, timeout=30)
     r.raise_for_status()
     domains = []
@@ -69,7 +55,6 @@ def get_cn_domains():
     return unique
 
 def update_split_tunnels(cidrs, domains):
-    """将规则推送至 Cloudflare"""
     max_domains = min(TARGET_DOMAIN_N, len(domains))
     max_ips     = min(MAX_RULES - max_domains, len(cidrs))
 
@@ -92,7 +77,7 @@ def update_split_tunnels(cidrs, domains):
         resp.raise_for_status()
 
 if __name__ == "__main__":
-    print("🔄 开始拉取与清洗数据...")
+    print("🔄 开始拉取数据...")
     cidrs   = get_cn_cidrs()
     domains = get_cn_domains()
     update_split_tunnels(cidrs, domains)
